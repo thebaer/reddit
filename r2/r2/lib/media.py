@@ -24,6 +24,7 @@ from pylons import g, config
 
 from r2.models.link import Link
 from r2.lib import s3cp
+from r2.lib import cfcp
 from r2.lib.utils import timeago, fetch_things2
 from r2.lib.utils import TimeoutFunction, TimeoutFunctionException
 from r2.lib.db.operators import desc
@@ -43,6 +44,7 @@ import hashlib
 import mimetypes
 
 s3_direct_url = "s3.amazonaws.com"
+cf_direct_url = "c267841.r41.cf1.rackcdn.com"
 
 threads = 20
 log = g.log
@@ -71,6 +73,10 @@ def filename_to_s3_bucket(file_name):
     num = ord(file_name[-1]) % len(g.s3_media_buckets)
     return g.s3_media_buckets[num]
 
+def filename_to_cf_container(file_name):
+    num = ord(file_name[-1]) % len(g.cf_thumb_containers)
+    return g.cf_thumb_containers[num]
+
 def s3_upload_media(data, file_name, file_type, mime_type, never_expire):
     bucket = filename_to_s3_bucket(file_name)
     s3cp.send_file(bucket, file_name+file_type, data, mime_type,
@@ -81,6 +87,17 @@ def s3_upload_media(data, file_name, file_type, mime_type, never_expire):
         return "http://%s/%s/%s%s" % (s3_direct_url, bucket, file_name, file_type)
     else:
         return "http://%s/%s%s" % (bucket, file_name, file_type)
+
+def cf_upload_media(data, file_name, file_type, mime_type, never_expire):
+    container = filename_to_cf_container(file_name)
+    cfcp.send_file(container, file_name+file_type, data, mime_type,
+                       never_expire=never_expire,
+                       replace = False,
+                       reduced_redundancy=True)
+    if g.cf_media_direct:
+    	return "http://%s/%s%s" % (cf_direct_url, file_name, file_type)
+    else:
+        return "http://%s/%s%s" % (container, file_name, file_type)
 
 def get_filename_from_content(contents):
     sha = hashlib.sha1(contents).digest()
@@ -120,6 +137,8 @@ def upload_media(image, never_expire=True, file_type='.jpg'):
         file_name = get_filename_from_content(contents)
         if g.media_store == "s3":
             url = s3_upload_media(contents, file_name=file_name, mime_type=mime_type, file_type=file_type, never_expire=True)
+        elif g.media_store == "cf":
+            url = cf_upload_media(contents, file_name=file_name, mime_type=mime_type, file_type=file_type, never_expire=True)
     finally:
         os.unlink(f.name)
     return url
